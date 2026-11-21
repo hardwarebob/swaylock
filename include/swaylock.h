@@ -100,6 +100,10 @@ struct swaylock_state {
 	bool run_display, locked;
 	struct ext_session_lock_manager_v1 *ext_session_lock_manager_v1;
 	struct ext_session_lock_v1 *ext_session_lock_v1;
+	bool has_remote_session;
+	bool disconnect_on_unlock;
+	char remote_session_id[128];
+	char remote_session_label[256];
 };
 
 struct swaylock_surface {

@@ -37,6 +37,7 @@ libpam = cc.find_library('pam', required: get_option('pam'))
 crypt = cc.find_library('crypt', required: not libpam.found())
 math = cc.find_library('m')
 rt = cc.find_library('rt')
+libsystemd = dependency('libsystemd', required: false)
 
 git = find_program('git', required: false)
 scdoc = find_program('scdoc', required: get_option('man-pages'))
@@ -79,6 +80,7 @@ conf_data = configuration_data()
 conf_data.set_quoted('SYSCONFDIR', get_option('prefix') / get_option('sysconfdir'))
 conf_data.set_quoted('SWAYLOCK_VERSION', version)
 conf_data.set10('HAVE_GDK_PIXBUF', gdk_pixbuf.found())
+conf_data.set10('HAVE_LIBSYSTEMD', libsystemd.found())
 
 subdir('include')
 
@@ -89,6 +91,7 @@ dependencies = [
 	rt,
 	xkbcommon,
 	wayland_client,
+	libsystemd,
 ]
 
 sources = [

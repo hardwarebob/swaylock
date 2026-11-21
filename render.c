@@ -216,6 +216,22 @@ static bool render_frame(struct swaylock_surface *surface) {
 				buffer_width = extents.width + 2 * box_padding;
 			}
 		}
+		if (state->has_remote_session) {
+			char banner[384];
+			snprintf(banner, sizeof(banner),
+				"%s | F1: Disconnect on unlock [%s]",
+				state->remote_session_label,
+				state->disconnect_on_unlock ? "ON" : "OFF");
+			cairo_text_extents_t extents;
+			cairo_font_extents_t fe;
+			double box_padding = 4.0 * surface->scale;
+			cairo_text_extents(state->test_cairo, banner, &extents);
+			cairo_font_extents(state->test_cairo, &fe);
+			buffer_height += fe.height + 3 * box_padding;
+			if (buffer_width < extents.width + 2 * box_padding) {
+				buffer_width = extents.width + 2 * box_padding;
+			}
+		}
 	}
 	// Ensure buffer size is multiple of buffer scale - required by protocol
 	buffer_height += surface->scale - (buffer_height % surface->scale);
@@ -385,6 +401,38 @@ static bool render_frame(struct swaylock_surface *surface) {
 				y + (fe.height - fe.descent) + box_padding);
 			cairo_set_source_u32(cairo, state->args.colors.layout_text);
 			cairo_show_text(cairo, layout_text);
+			cairo_new_sub_path(cairo);
+		}
+
+		if (state->has_remote_session) {
+			char banner[384];
+			snprintf(banner, sizeof(banner),
+				"%s | F1: Disconnect on unlock [%s]",
+				state->remote_session_label,
+				state->disconnect_on_unlock ? "ON" : "OFF");
+
+			cairo_text_extents_t extents;
+			cairo_font_extents_t fe;
+			double x, y;
+			double box_padding = 4.0 * surface->scale;
+			cairo_text_extents(cairo, banner, &extents);
+			cairo_font_extents(cairo, &fe);
+			x = (buffer_width / 2) - (extents.width / 2) - box_padding;
+			y = buffer_diameter + (layout_text ? (fe.height + 3.0 * box_padding) : 0);
+
+			cairo_rectangle(cairo, x, y,
+				extents.width + 2.0 * box_padding,
+				fe.height + 2.0 * box_padding);
+			cairo_set_source_u32(cairo, state->args.colors.layout_background);
+			cairo_fill_preserve(cairo);
+			cairo_set_source_u32(cairo, state->args.colors.layout_border);
+			cairo_stroke(cairo);
+
+			cairo_move_to(cairo,
+				x - extents.x_bearing + box_padding,
+				y + (fe.height - fe.descent) + box_padding);
+			cairo_set_source_u32(cairo, state->args.colors.layout_text);
+			cairo_show_text(cairo, banner);
 			cairo_new_sub_path(cairo);
 		}
 	}

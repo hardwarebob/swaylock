@@ -170,6 +170,12 @@ void swaylock_handle_key(struct swaylock_state *state,
 		schedule_input_idle(state);
 		damage_state(state);
 		break;
+	case XKB_KEY_F1:
+		if (state->has_remote_session && !repeat) {
+			state->disconnect_on_unlock = !state->disconnect_on_unlock;
+			damage_state(state);
+		}
+		break;
 	case XKB_KEY_Caps_Lock:
 	case XKB_KEY_Shift_L:
 	case XKB_KEY_Shift_R:

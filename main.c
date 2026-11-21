@@ -25,6 +25,121 @@
 #include "seat.h"
 #include "swaylock.h"
 #include "ext-session-lock-v1-client-protocol.h"
+#if HAVE_LIBSYSTEMD
+#include <systemd/sd-bus.h>
+#endif
+
+static void query_remote_sessions(struct swaylock_state *state) {
+#if HAVE_LIBSYSTEMD
+	sd_bus *bus = NULL;
+	if (sd_bus_open_user(&bus) < 0 || !bus) {
+		return;
+	}
+	sd_bus_error err = SD_BUS_ERROR_NULL;
+	sd_bus_message *reply = NULL;
+	int rc = sd_bus_get_property(
+		bus,
+		"org.freedesktop.RemoteSessions",
+		"/RemoteSessions",
+		"org.freedesktop.RemoteSessions",
+		"ActiveSessions",
+		&err,
+		&reply,
+		"aa{sv}");
+	if (rc >= 0 && reply) {
+		if (sd_bus_message_enter_container(reply, 'a', "{sv}") >= 0) {
+			while (sd_bus_message_enter_container(reply, 'e', "sv") > 0) {
+				const char *key = NULL;
+				if (sd_bus_message_read(reply, "s", &key) < 0) {
+					break;
+				}
+				/* First entry in aa{sv} is actually a{sv} */
+				(void)key;
+				break;
+			}
+		}
+		/* Re-parse properly as array of a{sv} */
+		sd_bus_message_rewind(reply, true);
+		if (sd_bus_message_enter_container(reply, 'a', "a{sv}") >= 0) {
+			while (sd_bus_message_enter_container(reply, 'a', "{sv}") > 0) {
+				char sid[128] = {0};
+				char provider[64] = "Remote";
+				char client[128] = "Client";
+				while (sd_bus_message_enter_container(reply, 'e', "sv") > 0) {
+					const char *k = NULL;
+					char type = 0;
+					const char *contents = NULL;
+					if (sd_bus_message_read(reply, "s", &k) < 0 ||
+							sd_bus_message_peek_type(reply, &type, &contents) < 0 ||
+							type != 'v') {
+						sd_bus_message_skip(reply, "v");
+						sd_bus_message_exit_container(reply);
+						continue;
+					}
+					sd_bus_message_enter_container(reply, 'v', contents);
+					if (strcmp(contents, "s") == 0) {
+						const char *val = NULL;
+						if (sd_bus_message_read(reply, "s", &val) >= 0 && val) {
+							if (strcmp(k, "id") == 0) {
+								snprintf(sid, sizeof(sid), "%s", val);
+							} else if (strcmp(k, "provider") == 0) {
+								snprintf(provider, sizeof(provider), "%s", val);
+							} else if (strcmp(k, "clientName") == 0) {
+								snprintf(client, sizeof(client), "%s", val);
+							}
+						}
+					} else {
+						sd_bus_message_skip(reply, contents);
+					}
+					sd_bus_message_exit_container(reply);
+					sd_bus_message_exit_container(reply);
+				}
+				sd_bus_message_exit_container(reply);
+				if (sid[0] != '\0') {
+					state->has_remote_session = true;
+					snprintf(state->remote_session_id, sizeof(state->remote_session_id), "%s", sid);
+					snprintf(state->remote_session_label, sizeof(state->remote_session_label),
+						"Active remote session: %s (%s)", provider, client);
+					break;
+				}
+			}
+		}
+	}
+	sd_bus_message_unref(reply);
+	sd_bus_error_free(&err);
+	sd_bus_unref(bus);
+#else
+	(void)state;
+#endif
+}
+
+static void request_remote_disconnect(const struct swaylock_state *state) {
+#if HAVE_LIBSYSTEMD
+	if (!state->disconnect_on_unlock || !state->has_remote_session ||
+			state->remote_session_id[0] == '\0') {
+		return;
+	}
+	sd_bus *bus = NULL;
+	if (sd_bus_open_user(&bus) < 0 || !bus) {
+		return;
+	}
+	sd_bus_error err = SD_BUS_ERROR_NULL;
+	sd_bus_call_method(
+		bus,
+		"org.freedesktop.RemoteSessions",
+		"/RemoteSessions",
+		"org.freedesktop.RemoteSessions",
+		"RequestDisconnect",
+		&err,
+		NULL,
+		"s",
+		state->remote_session_id);
+	sd_bus_error_free(&err);
+	sd_bus_unref(bus);
+#else
+	(void)state;
+#endif
+}
 
 static uint32_t parse_color(const char *color) {
 	if (color[0] == '#') {
@@ -1263,6 +1378,8 @@ int main(int argc, char **argv) {
 	sa.sa_flags = SA_RESTART;
 	sigaction(SIGUSR1, &sa, NULL);
 
+	query_remote_sessions(&state);
+
 	state.run_display = true;
 	while (state.run_display) {
 		errno = 0;
@@ -1271,6 +1388,8 @@ int main(int argc, char **argv) {
 		}
 		loop_poll(state.eventloop);
 	}
+
+	request_remote_disconnect(&state);
 
 	ext_session_lock_v1_unlock_and_destroy(state.ext_session_lock_v1);
 	wl_display_roundtrip(state.display);
